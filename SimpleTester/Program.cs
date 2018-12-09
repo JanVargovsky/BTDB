@@ -44,7 +44,8 @@ namespace SimpleTester
             //new ClassGenerator().Run();
             //new EventLayer2TestWithALotOfClasses().Run();
             //BenchmarkRunner.Run<RelationFreeContentTest>();
-            new KeyValueDBRollbackTest().CanOpenDbAfterDeletingAndCompacting();
+            //new KeyValueDBRollbackTest().CanOpenDbAfterDeletingAndCompacting();
+            BenchmarkRunner.Run<InsertComparison>();
         }
     }
 }
