@@ -1,6 +1,7 @@
 ﻿using BTDB.Buffer;
 using BTDB.KVDBLayer;
 using BTDB.ODBLayer;
+using Force.Crc32;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -267,16 +268,35 @@ namespace ODbDump
         }
     }
 
+    enum HashType
+    {
+        None,
+        Sha256,
+        Crc32
+    }
+
     class ToFilesVisitorForComparison : ToConsoleVisitorForComparison, IDisposable
     {
         readonly bool _hashStrings;
         readonly HashAlgorithm _hashAlgorithm;
+        readonly string _fileSuffix;
         StreamWriter _output;
 
-        public ToFilesVisitorForComparison(bool hashStrings)
+        public ToFilesVisitorForComparison(HashType hashType)
         {
-            _hashStrings = hashStrings;
-            _hashAlgorithm = SHA256.Create();
+            _hashStrings = hashType != HashType.None;
+            switch (hashType)
+            {
+                case HashType.None:
+                    _fileSuffix = ".txt";
+                    break;
+                case HashType.Sha256:
+                    (_hashAlgorithm, _fileSuffix) = (SHA256.Create(), "-SHA256.txt");
+                    break;
+                case HashType.Crc32:
+                    (_hashAlgorithm, _fileSuffix) = (new Crc32Algorithm(), "-CRC32.txt");
+                    break;
+            }
         }
 
         StreamWriter OpenOutputStream(string filename) => new StreamWriter(File.Open(filename, FileMode.Create, FileAccess.Write));
@@ -294,7 +314,8 @@ namespace ODbDump
                 var sb = new StringBuilder();
                 foreach (var @byte in hash)
                     sb.Append(@byte.ToString("X2"));
-                content = sb.ToString();
+                base.ScalarAsText(sb.ToString());
+                return;
             }
 
             base.ScalarAsText(content);
@@ -303,7 +324,7 @@ namespace ODbDump
         public override bool VisitSingleton(uint tableId, string tableName, ulong oid)
         {
             _output?.Dispose();
-            _output = OpenOutputStream($"{ToValidFilename(tableName)}.txt");
+            _output = OpenOutputStream($"{ToValidFilename(tableName)}");
 
             return base.VisitSingleton(tableId, tableName, oid);
         }
@@ -311,7 +332,7 @@ namespace ODbDump
         public override bool StartRelation(string relationName)
         {
             _output?.Dispose();
-            _output = OpenOutputStream($"{ToValidFilename(relationName)}.txt");
+            _output = OpenOutputStream($"{ToValidFilename(relationName)}");
 
             return base.StartRelation(relationName);
         }
@@ -323,7 +344,8 @@ namespace ODbDump
             base.EndRelation();
         }
 
-        string ToValidFilename(string filename) => string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
+        string ToValidFilename(string filename) =>
+            string.Join("_", filename.Split(Path.GetInvalidFileNameChars())) + _fileSuffix;
 
         public void Dispose()
         {
@@ -702,8 +724,8 @@ namespace ODbDump
                             odb.Open(kdb, false);
                             using (var trkv = kdb.StartReadOnlyTransaction())
                             using (var tr = odb.StartTransaction())
+                            using (var visitor = new ToFilesVisitorForComparison(HashType.Crc32))
                             {
-                                var visitor = new ToFilesVisitorForComparison(hashStrings: true);
                                 var iterator = new ODBIterator(tr, visitor);
                                 iterator.Iterate(sortTableByNameAsc: true);
                             }
